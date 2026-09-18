@@ -215,6 +215,19 @@
                             Cancelar
                         </button>
                     </div>
+
+                    <section id="area-previa-pdf" class="hidden mt-6 border border-gray-300 rounded-sm overflow-hidden bg-white shadow-sm">
+                        <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+                            <h3 class="font-bold text-[#1f497d]">Prévia do comprovante</h3>
+                            <span class="text-xs text-gray-500">Confira o documento antes de baixar.</span>
+                        </div>
+                        <iframe id="previa-pdf" class="w-full h-[720px] bg-gray-100" title="Prévia do comprovante em PDF"></iframe>
+                        <div class="p-4 border-t border-gray-200 bg-gray-50">
+                            <a id="botao-download-pdf" class="inline-flex items-center bg-[#2e6da4] border border-[#245580] text-white font-bold px-4 py-2 rounded-sm hover:bg-[#204d74] shadow-sm transition-colors">
+                                <i class="fa-solid fa-download mr-2"></i> Baixar PDF
+                            </a>
+                        </div>
+                    </section>
                 </div>
             </div>
         </div>
@@ -229,6 +242,7 @@
         let listaArmazens = [];
         let listaTransferencia = [];
         let idCounter = 0;
+        let urlPreviaPdf = null;
 
         function escaparHtml(valor) {
             return String(valor ?? '').replace(/[&<>'"]/g, caractere => ({
@@ -630,7 +644,9 @@
                 const pageWidth = doc.internal.pageSize.getWidth();
                 const pageHeight = doc.internal.pageSize.getHeight();
                 
-                const margin = 42;
+                // Margens mais estreitas aproveitam melhor a página A4 e deixam espaço
+                // para o campo que será preenchido manualmente no comprovante.
+                const margin = 28;
                 let currentY = 145;
                 
                 const brandDarkBlue = '#4c5c77';
@@ -718,7 +734,8 @@
                         item.um,
                         origemLimpa,
                         destinoLimpo,
-                        item.quantidade
+                        item.quantidade,
+                        ''
                     ];
                 });
 
@@ -729,15 +746,16 @@
                     headStyles: { fillColor: brandDarkBlue, textColor: 255, halign: 'center', fontSize: 8, fontStyle: 'bold' },
                     bodyStyles: { textColor: 50, fontSize: 8, halign: 'center', valign: 'middle' },
                     alternateRowStyles: { fillColor: brandLightBlue },
-                    columnStyles: { 
-                        0: { cellWidth: 60, fontStyle: 'bold' }, 
+                    columnStyles: {
+                        0: { cellWidth: 50, fontStyle: 'bold' },
                         1: { cellWidth: 'auto', halign: 'left' },
-                        2: { cellWidth: 30 }, 
-                        3: { cellWidth: 70 }, 
-                        4: { cellWidth: 70 },
-                        5: { cellWidth: 60, fontStyle: 'bold' } 
+                        2: { cellWidth: 27 },
+                        3: { cellWidth: 61 },
+                        4: { cellWidth: 61 },
+                        5: { cellWidth: 77, fontStyle: 'bold' },
+                        6: { cellWidth: 78 }
                     },
-                    head: [['Código', 'Produto', 'U.M.', 'Armazém Origem', 'Armazém Destino', 'Qtd. Solicitada']],
+                    head: [['Código', 'Produto', 'U.M.', 'Armazém Origem', 'Armazém Destino', 'Qtd. Solicitada', 'Qtd. Atendida']],
                     body: tableData,
                     margin: { top: 120, bottom: 55, left: margin, right: margin },
                     willDrawPage: function (data) {
@@ -746,9 +764,20 @@
                     didDrawPage: function () {}
                 });
 
-                // --- 5. SALVAR ARQUIVO ---
+                // --- 5. EXIBIR PRÉVIA E PREPARAR DOWNLOAD ---
                 const dateStrFile = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-                doc.save(`Comprovante_Transferencia_${dateStrFile}.pdf`);
+                const nomeArquivo = `Comprovante_Transferencia_${dateStrFile}.pdf`;
+                const blobPdf = doc.output('blob');
+
+                if (urlPreviaPdf) URL.revokeObjectURL(urlPreviaPdf);
+                urlPreviaPdf = URL.createObjectURL(blobPdf);
+
+                document.getElementById('previa-pdf').src = urlPreviaPdf;
+                const botaoDownload = document.getElementById('botao-download-pdf');
+                botaoDownload.href = urlPreviaPdf;
+                botaoDownload.download = nomeArquivo;
+                document.getElementById('area-previa-pdf').classList.remove('hidden');
+                document.getElementById('area-previa-pdf').scrollIntoView({ behavior: 'smooth', block: 'start' });
             } catch (error) {
                 console.error("Erro na geração do PDF: ", error);
                 alert("Ocorreu um erro ao gerar o PDF. Verifique se as informações estão preenchidas corretamente.");
