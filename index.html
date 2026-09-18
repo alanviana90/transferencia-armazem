@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema Web de Transferência - Águas de Niterói</title>
+    <title>Solicitação de Transferência</title>
+    <link rel="icon" type="image/png" href="favicon-transferencia.png">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -657,21 +658,11 @@
                 const templateImg = document.getElementById('template-bg');
                 const hasTemplate = templateImg && templateImg.complete && templateImg.naturalWidth > 0;
 
-                // Usa somente o símbolo da imagem institucional. Aplicar a folha inteira como
-                // fundo criava elementos visuais concorrendo com as informações do documento.
-                let logoInstitucional = null;
-                if (hasTemplate) {
-                    const logoCanvas = document.createElement('canvas');
-                    logoCanvas.width = 180;
-                    logoCanvas.height = 180;
-                    const logoContext = logoCanvas.getContext('2d');
-                    logoContext.drawImage(templateImg, 20, 25, 180, 180, 0, 0, 180, 180);
-                    logoInstitucional = logoCanvas.toDataURL('image/png');
-                }
-
                 function desenharCabecalho(numeroPagina) {
-                    if (logoInstitucional) {
-                        doc.addImage(logoInstitucional, 'PNG', margin, 31, 62, 62);
+                    // Aplica a folha institucional inteira antes do conteúdo, incluindo a
+                    // marca d'água central e o logotipo do canto superior esquerdo.
+                    if (hasTemplate) {
+                        doc.addImage(templateImg, 'PNG', 0, 0, pageWidth, pageHeight);
                     }
 
                     doc.setDrawColor(brandDarkBlue);
