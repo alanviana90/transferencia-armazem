@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Web de Transferência - Águas de Niterói</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- PapaParse para ler CSV do Google Sheets -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <!-- jsPDF e AutoTable para geração do PDF Profissional -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            font-size: 13px;
+        }
+
+        .erp-table th {
+            background-color: #f0f0f0;
+            color: #555;
+            font-weight: bold;
+            border-bottom: 1px solid #ddd;
+            padding: 10px 8px;
+            text-align: left;
+        }
+        .erp-table td {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            vertical-align: middle;
+        }
+        
+        .erp-input {
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 4px 8px;
+            height: 30px;
+            outline: none;
+            width: 100%;
+        }
+        .erp-input:focus {
+            border-color: #66afe9;
+            box-shadow: inset 0 1px 1px rgba(0,0,0,.075), 0 0 8px rgba(102,175,233,.6);
+        }
+
+        .erp-btn-blue {
+            background-color: #2e6da4;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 5px 12px;
+            cursor: pointer;
+            height: 30px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .erp-btn-blue:hover { background-color: #204d74; }
+
+        .erp-btn-green {
+            background-color: #5cb85c;
+            color: white;
+            border: 1px solid #4cae4c;
+            border-radius: 3px;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .erp-btn-green:hover { background-color: #449d44; }
+
+        .erp-btn-red {
+            background-color: #d9534f;
+            color: white;
+            border: 1px solid #d43f3a;
+            border-radius: 3px;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .erp-btn-red:hover { background-color: #c9302c; }
+
+        #loader-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.9);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #2e6da4;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="min-h-screen pb-10">
+
+    <!-- Imagem de template de fundo para o PDF (Mantenha o arquivo "922a9ae1-f275-46b3-8c0d-9a9d9f9a2d7d.png" na mesma pasta do sistema) -->
+    <img id="template-bg" src="922a9ae1-f275-46b3-8c0d-9a9d9f9a2d7d.png" style="display: none;">
+
+    <div id="loader-overlay">
+        <div class="spinner mb-4"></div>
+        <h2 class="text-lg font-bold text-gray-700">Sincronizando com Google Sheets...</h2>
+        <p class="text-sm text-gray-500 mt-2" id="loader-status">Verificando atualizações de estoque.</p>
+    </div>
+
+    <div class="max-w-[1400px] mx-auto bg-white min-h-screen shadow-sm border-x border-gray-200">
+        
+        <!-- Cabeçalho -->
+        <div class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+            <h1 class="text-xl font-bold text-black tracking-tight">Transferência entre Armazéns</h1>
+            <span id="data-atualizacao" class="text-xs text-gray-700 font-bold bg-blue-50 px-3 py-1.5 rounded border border-blue-200 shadow-sm">
+                <i class="fa-solid fa-calendar-days text-blue-600 mr-1"></i> Saldo Atualizado em: Carregando...
+            </span>
+        </div>
+
+        <div class="p-4">
+            <!-- Barra de Pesquisa -->
+            <div class="flex items-center gap-2 mb-2 p-3 border border-gray-200 rounded-sm">
+                <select id="tipo-busca" class="erp-input w-32 bg-white">
+                    <option value="codigo">Código</option>
+                    <option value="descricao">Descrição</option>
+                </select>
+                
+                <input type="text" id="input-busca" placeholder="Pesquisar pela descrição ou código do produto. Digite ao menos 3 caracteres." 
+                    class="erp-input flex-1 max-w-2xl bg-white" onkeyup="if(event.key === 'Enter') realizarBusca()">
+                
+                <button onclick="realizarBusca()" class="erp-btn-blue w-10">
+                    <i class="fa-solid fa-search"></i>
+                </button>
+            </div>
+
+            <!-- Área de Busca Provisória -->
+            <div class="mb-8 border border-gray-200 rounded-sm overflow-hidden">
+                <table class="w-full erp-table bg-white">
+                    <thead>
+                        <tr>
+                            <th class="w-32 pl-4">Código</th>
+                            <th>Produto</th>
+                            <th class="w-16 text-center">UM</th>
+                            <th class="w-32 text-right">Saldo Total</th>
+                            <th class="w-24 text-center">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-resultados">
+                        <tr>
+                            <td colspan="5" class="text-center py-6 text-gray-500 bg-gray-50">
+                                Realize uma busca para encontrar o item desejado.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="border-t-[3px] border-[#2e6da4] pt-4 mt-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-bold text-[#1f497d]">Relação de Produtos</h2>
+                </div>
+                
+                <div class="overflow-x-auto bg-[#fcfcfc] border border-gray-200 p-2 rounded">
+                    <table class="w-full erp-table text-sm">
+                        <thead>
+                            <tr>
+                                <th class="w-12 text-center bg-[#f0f0f0] p-1 border-b border-gray-300"></th>
+                                <th class="w-36">Código</th>
+                                <th>Descrição do Produto</th>
+                                <th class="w-16 text-center">UM</th>
+                                <th class="w-72">Armazém (Origem / Destino)</th>
+                                <th class="w-32">Quantidade</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabela-transferencias">
+                            <tr id="linha-vazia-transferencia">
+                                <td colspan="6" class="text-center py-8 text-gray-500 bg-white">
+                                    Nenhum item adicionado à lista de transferência.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-8">
+                    <h2 class="text-[16px] text-gray-600 font-normal mb-2">Finalização</h2>
+                    <div class="bg-gray-50 border border-gray-200 p-4 rounded-sm mb-4">
+                        <p class="text-sm text-black mb-3">Preencha o nome do solicitante e clique em "Finalizar" para gerar o Comprovante (PDF).</p>
+                        <div class="flex items-center gap-2">
+                            <label for="nome-solicitante" class="text-sm font-bold text-gray-700">Solicitante:</label>
+                            <input type="text" id="nome-solicitante" placeholder="Digite seu nome..." class="erp-input w-72 bg-white" onkeyup="if(event.key === 'Enter') finalizarPDF()">
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        <button onclick="finalizarPDF()" class="bg-[#5cb85c] border border-[#4cae4c] text-white font-bold px-4 py-1.5 rounded-sm hover:bg-[#449d44] h-9 shadow-sm flex items-center transition-colors">
+                            <i class="fa-solid fa-check mr-2"></i> Finalizar
+                        </button>
+                        <button onclick="limparLista()" class="bg-gray-100 border border-gray-300 text-gray-700 px-4 py-1.5 rounded-sm hover:bg-gray-200 h-9 shadow-sm transition-colors">
+                            Cancelar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const URL_SALDOS = "https://docs.google.com/spreadsheets/d/1hwH6hF4l9pzsmhUXDL4QGfq15Q2FS77koDEchMjrHcU/export?format=csv&gid=0";
+        const URL_CONTROLE = "https://docs.google.com/spreadsheets/d/1hwH6hF4l9pzsmhUXDL4QGfq15Q2FS77koDEchMjrHcU/export?format=csv&gid=2113606110";
+
+        let dbProdutos = []; 
+        let dbSaldos = {};   
+        let listaArmazens = [];
+        let listaTransferencia = [];
+        let idCounter = 0;
+
+        function escaparHtml(valor) {
+            return String(valor ?? '').replace(/[&<>'"]/g, caractere => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            })[caractere]);
+        }
+
+        function obterSaldoOrigem(item) {
+            const saldo = (dbSaldos[item.codigo] || []).find(s => s.armazem === item.origem);
+            return saldo ? Math.floor(saldo.saldo) : 0;
+        }
+
+        function validarItemTransferencia(item) {
+            const quantidade = Number(item.quantidade);
+            const saldoDisponivel = obterSaldoOrigem(item);
+
+            if (!item.origem || !item.destino) return 'Selecione a origem e o destino.';
+            if (item.origem === item.destino) return 'A origem e o destino não podem ser o mesmo armazém.';
+            if (!Number.isInteger(quantidade) || quantidade < 1) return 'Informe uma quantidade inteira maior que zero.';
+            if (quantidade > saldoDisponivel) return `A quantidade solicitada (${quantidade}) excede o saldo disponível na origem (${saldoDisponivel}).`;
+            return '';
+        }
+
+        function possuiErroCriticoCsv(erros) {
+            const codigosCriticos = ['MissingQuotes', 'InvalidQuotes', 'UndetectableDelimiter'];
+            return (erros || []).some(erro => codigosCriticos.includes(erro.code));
+        }
+
+        window.onload = async function() {
+            try {
+                await Promise.all([carregarDadosGoogle(), carregarDataControle()]);
+                document.getElementById('loader-overlay').style.display = 'none';
+            } catch (error) {
+                console.error("Erro ao carregar dados online:", error);
+                document.getElementById('data-atualizacao').innerHTML = '<i class="fa-solid fa-triangle-exclamation text-yellow-600 mr-1"></i> Saldo atualizado: data não informada';
+                alert("Não foi possível validar a base de estoque ou sua data de atualização.\n\nDetalhe: " + (error.message || 'erro de comunicação') + "\n\nVerifique a conexão, as permissões e a célula CONTROLE!A2.");
+                document.getElementById('loader-overlay').style.display = 'none';
+            }
+        };
+
+        async function carregarDadosGoogle() {
+            return new Promise((resolve, reject) => {
+                Papa.parse(URL_SALDOS + '&cacheBust=' + Date.now(), {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: async function(results) {
+                        try {
+                            if (possuiErroCriticoCsv(results.errors)) {
+                                throw new Error('A planilha contém erros de leitura.');
+                            }
+                            if (!results.data || results.data.length === 0) {
+                                throw new Error('A planilha não possui registros de estoque.');
+                            }
+                            processarSaldos(results.data);
+                            if (dbProdutos.length === 0) {
+                                throw new Error('Não foram encontrados produtos válidos. Verifique os cabeçalhos e os dados da planilha.');
+                            }
+                            resolve();
+                        } catch (error) {
+                            reject(error);
+                        }
+                    },
+                    error: function(err) {
+                        reject(err);
+                    }
+                });
+            });
+        }
+
+        function carregarDataControle() {
+            return new Promise((resolve, reject) => {
+                Papa.parse(URL_CONTROLE + '&cacheBust=' + Date.now(), {
+                    download: true,
+                    delimiter: ',',
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        if (possuiErroCriticoCsv(results.errors)) {
+                            reject(new Error('A aba CONTROLE não pôde ser lida.'));
+                            return;
+                        }
+
+                        const dataAtualizacao = results.data?.[1]?.[0]?.toString().trim();
+                        if (!dataAtualizacao) {
+                            reject(new Error('A célula CONTROLE!A2 está vazia.'));
+                            return;
+                        }
+
+                        document.getElementById('data-atualizacao').innerHTML = `<i class="fa-solid fa-calendar-days text-blue-600 mr-1"></i> Saldo Atualizado em: ${escaparHtml(dataAtualizacao)}`;
+                        resolve();
+                    },
+                    error: function(err) {
+                        reject(err);
+                    }
+                });
+            });
+        }
+
+        function processarSaldos(data) {
+            dbProdutos = [];
+            dbSaldos = {};
+            let setArmazens = new Set();
+            let produtosMap = new Map();
+
+            data.forEach((row) => {
+                // Prevenção contra BOM (Byte Order Mark) e espaços nas colunas
+                const keys = Object.keys(row);
+                let codKey = keys.find(k => k.replace(/^\uFEFF/, '').trim() === 'Produto' || k.trim() === 'Código' || k.trim() === 'Codigo');
+                let descKey = keys.find(k => k.trim() === 'Descricao' || k.trim() === 'Descrição');
+                let umKey = keys.find(k => k.trim() === 'Unidade' || k.trim() === 'UM');
+                let armazemKey = keys.find(k => k.trim() === 'Almoxarifado _T' || k.trim() === 'Almoxarifado');
+                let saldoKey = keys.find(k => k.trim() === 'Saldo Atual' || k.trim() === 'Saldo');
+
+                let cod = String(row[codKey] || row['Produto'] || '').trim().toUpperCase();
+                let desc = String(row[descKey] || row['Descricao'] || '').trim();
+                let um = String(row[umKey] || row['Unidade'] || 'UN').trim().toUpperCase();
+                let armazemRaw = String(row[armazemKey] || row['Almoxarifado _T'] || '').trim().toUpperCase();
+                let saldoStr = String(row[saldoKey] || row['Saldo Atual'] || '0').replace(/\./g, '').replace(',', '.');
+                let saldo = parseFloat(saldoStr) || 0;
+
+                // Salva o produto na memória mesmo se não tiver saldo, para melhorar o feedback na busca
+                if (cod) {
+                    if(!produtosMap.has(cod)) {
+                        produtosMap.set(cod, {codigo: cod, descricao: desc, um: um});
+                    }
+
+                    // Formatação do Armazém para padrão ALMOX.XX
+                    let armazem = armazemRaw;
+                    if (/^\d+([.,]\d+)?$/.test(armazemRaw) || /^\d{1,2}$/.test(armazemRaw)) {
+                        let num = Math.floor(parseFloat(armazemRaw.replace(',', '.')));
+                        armazem = "ALMOX." + String(num).padStart(2, '0');
+                    } else if (!armazemRaw.includes("ALMOX") && armazemRaw !== "") {
+                         let numMatch = armazemRaw.match(/\d+/);
+                         if(numMatch) armazem = "ALMOX." + numMatch[0].padStart(2, '0');
+                    }
+
+                    // Apenas computa o saldo se for maior que zero e possuir armazém
+                    if(armazem && saldo > 0) {
+                        if(!dbSaldos[cod]) dbSaldos[cod] = [];
+                        
+                        let armazemExistente = dbSaldos[cod].find(s => s.armazem === armazem);
+                        if (armazemExistente) {
+                            armazemExistente.saldo += saldo;
+                        } else {
+                            dbSaldos[cod].push({ armazem, saldo });
+                        }
+                        
+                        setArmazens.add(armazem);
+                    }
+                }
+            });
+
+            dbProdutos = Array.from(produtosMap.values());
+            listaArmazens = Array.from(setArmazens).sort();
+        }
+
+        function realizarBusca() {
+            const tipo = document.getElementById('tipo-busca').value;
+            const termo = document.getElementById('input-busca').value.trim().toUpperCase();
+            const tbody = document.getElementById('tabela-resultados');
+
+            const minimoCaracteres = tipo === 'codigo' ? 1 : 3;
+            if (termo.length < minimoCaracteres) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-yellow-600 bg-yellow-50">Digite ao menos ${minimoCaracteres} caractere${minimoCaracteres > 1 ? 's' : ''} para pesquisar.</td></tr>`;
+                return;
+            }
+
+            let resultados = [];
+            
+            // Tratamento inteligente para zeros à esquerda no código
+            let termoNumerico = termo.replace(/^0+/, ''); 
+
+            if (tipo === 'codigo') {
+                resultados = dbProdutos.filter(p => {
+                    let codNumerico = p.codigo.replace(/^0+/, '');
+                    // Permite encontrar se bater exato com ou sem zeros, ou se for um pedaço do código
+                    return p.codigo.includes(termo) || 
+                           (termoNumerico.length > 0 && codNumerico.includes(termoNumerico));
+                });
+            } else {
+                resultados = dbProdutos.filter(p => p.descricao.toUpperCase().includes(termo));
+            }
+
+            // Exclui produtos que já estão na lista de transferência
+            const codigosNaLista = listaTransferencia.map(i => i.codigo);
+            resultados = resultados.filter(p => !codigosNaLista.includes(p.codigo));
+
+            if (resultados.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-500 bg-gray-50">Nenhum produto encontrado. Verifique se o termo está correto ou se o item já foi adicionado à lista abaixo.</td></tr>';
+                return;
+            }
+
+            // Mostra até 5 resultados (antes mostrava só 1)
+            const resultadosLimitados = resultados.slice(0, 5);
+            tbody.innerHTML = '';
+
+            resultadosLimitados.forEach(prod => {
+                let saldosProduto = dbSaldos[prod.codigo] || [];
+                let saldoTotal = saldosProduto.reduce((acc, curr) => acc + curr.saldo, 0);
+                
+                let btnAcao = '';
+                if (Math.floor(saldoTotal) > 0) {
+                    const produtoSerializado = escaparHtml(JSON.stringify(prod));
+                    btnAcao = `<button onclick='adicionarTransferencia(${produtoSerializado})' class="erp-btn-green w-8 h-8 flex items-center justify-center mx-auto shadow-sm" title="Adicionar à lista">
+                                    <i class="fa-solid fa-plus"></i>
+                               </button>`;
+                } else {
+                    btnAcao = `<span class="text-[11px] uppercase tracking-wide text-red-600 font-bold bg-red-50 border border-red-200 px-2 py-1 rounded">Sem Saldo</span>`;
+                }
+
+                let tr = document.createElement('tr');
+                tr.className = "hover:bg-blue-50 transition-colors bg-white border-b border-gray-100";
+                tr.innerHTML = `
+                    <td class="text-gray-900 font-mono text-sm pl-4 py-3">${escaparHtml(prod.codigo)}</td>
+                    <td class="text-gray-700 text-xs">${escaparHtml(prod.descricao)}</td>
+                    <td class="text-center text-gray-700 text-sm">${escaparHtml(prod.um)}</td>
+                    <td class="text-right text-gray-900 font-bold ${saldoTotal <= 0 ? 'text-red-500' : ''}">${Math.floor(saldoTotal)}</td>
+                    <td class="text-center align-middle">${btnAcao}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            if (resultados.length > 5) {
+                 let trAviso = document.createElement('tr');
+                 trAviso.innerHTML = `<td colspan="5" class="text-center py-3 text-xs text-gray-500 bg-gray-50">Mostrando 5 de ${resultados.length} resultados encontrados. Seja mais específico na busca se não encontrou o item.</td>`;
+                 tbody.appendChild(trAviso);
+            }
+        }
+
+        function adicionarTransferencia(produto) {
+            idCounter++;
+            listaTransferencia.push({
+                id: idCounter,
+                codigo: produto.codigo,
+                descricao: produto.descricao,
+                um: produto.um,
+                origem: "",
+                destino: "",
+                quantidade: ""
+            });
+            
+            // Limpa a busca provisória após adicionar
+            document.getElementById('input-busca').value = '';
+            document.getElementById('tabela-resultados').innerHTML = '<tr><td colspan="5" class="text-center py-6 text-gray-500 bg-gray-50">Item adicionado com sucesso. Realize uma nova busca se desejar.</td></tr>';
+            
+            renderizarListaTransferencia();
+            document.getElementById('input-busca').focus();
+        }
+
+        function removerTransferencia(id) {
+            listaTransferencia = listaTransferencia.filter(item => item.id !== id);
+            renderizarListaTransferencia();
+        }
+
+        function limparLista() {
+            if(confirm("Deseja realmente cancelar e limpar todos os itens?")) {
+                listaTransferencia = [];
+                renderizarListaTransferencia();
+            }
+        }
+
+        function atualizarItem(id, campo, valor) {
+            const item = listaTransferencia.find(i => i.id === id);
+            if(item) {
+                // Garante apenas números inteiros
+                if(campo === 'quantidade') {
+                    valor = valor.replace(/[^\d]/g, ''); 
+                }
+                item[campo] = valor;
+                if (campo === 'origem') {
+                    if (item.destino === valor) item.destino = '';
+                    renderizarListaTransferencia();
+                }
+            }
+        }
+
+        function renderizarListaTransferencia() {
+            const tbody = document.getElementById('tabela-transferencias');
+            const linhaVazia = document.getElementById('linha-vazia-transferencia');
+            
+            Array.from(tbody.children).forEach(child => {
+                if(child.id !== 'linha-vazia-transferencia') child.remove();
+            });
+
+            if (listaTransferencia.length === 0) {
+                linhaVazia.style.display = 'table-row';
+                return;
+            }
+
+            linhaVazia.style.display = 'none';
+
+            listaTransferencia.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "bg-white border-b border-gray-200 hover:bg-gray-50"; 
+                
+                let optionsOrigem = `<option value="">Selecione Origem (Saldos > 0)</option>`;
+                let saldosProduto = dbSaldos[item.codigo] || [];
+                
+                // Exibindo o saldo ao lado do armazém no dropdown
+                saldosProduto.filter(s => Math.floor(s.saldo) > 0).forEach(s => {
+                    let saldoInteiro = Math.floor(s.saldo);
+                    optionsOrigem += `<option value="${escaparHtml(s.armazem)}" ${item.origem === s.armazem ? 'selected' : ''}>${escaparHtml(s.armazem)} - Saldo: ${saldoInteiro}</option>`;
+                });
+
+                let optionsDestino = `<option value="">Selecione Destino</option>`;
+                listaArmazens.forEach(arm => {
+                    if (arm === item.origem) return;
+                    optionsDestino += `<option value="${escaparHtml(arm)}" ${item.destino === arm ? 'selected' : ''}>${escaparHtml(arm)}</option>`;
+                });
+
+                const saldoDisponivel = item.origem ? obterSaldoOrigem(item) : 0;
+
+                tr.innerHTML = `
+                    <td class="text-center align-middle">
+                        <button onclick="removerTransferencia(${item.id})" class="erp-btn-red w-8 h-8 flex items-center justify-center mx-auto shadow-sm" title="Remover Item">
+                            <i class="fa-solid fa-minus text-sm"></i>
+                        </button>
+                    </td>
+                    <td class="align-middle">
+                        <input type="text" class="erp-input bg-gray-100 text-gray-800 text-sm font-mono text-center w-full" value="${escaparHtml(item.codigo)}" readonly>
+                    </td>
+                    <td class="align-middle">
+                        <input type="text" class="erp-input bg-gray-100 text-gray-700 text-xs w-full" value="${escaparHtml(item.descricao)}" readonly>
+                    </td>
+                    <td class="align-middle">
+                        <input type="text" class="erp-input bg-gray-100 text-gray-700 text-sm text-center w-full" value="${escaparHtml(item.um)}" readonly>
+                    </td>
+                    <td class="align-middle py-2">
+                        <select class="erp-input bg-white shadow-sm border-gray-300 text-xs mb-1 w-full cursor-pointer" onchange="atualizarItem(${item.id}, 'origem', this.value)">
+                            ${optionsOrigem}
+                        </select>
+                        <select class="erp-input bg-white shadow-sm border-gray-300 text-xs mt-1 w-full cursor-pointer" onchange="atualizarItem(${item.id}, 'destino', this.value)">
+                            ${optionsDestino}
+                        </select>
+                    </td>
+                    <td class="align-middle px-2">
+                        <input type="text" inputmode="numeric" placeholder="${item.origem ? 'Máx. ' + saldoDisponivel : 'Selecione a origem'}" title="${item.origem ? 'Saldo disponível: ' + saldoDisponivel : 'Selecione a origem para consultar o saldo'}" class="erp-input text-right shadow-sm border-gray-300 text-sm font-bold w-full" value="${escaparHtml(item.quantidade)}" oninput="this.value = this.value.replace(/[^0-9]/g, ''); atualizarItem(${item.id}, 'quantidade', this.value)">
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Função auxiliar para descobrir a região baseado no número do armazém
+        function obterRegiaoArmazem(armazemStr) {
+            if (!armazemStr) return "DESCONHECIDO";
+            
+            // Extrai apenas os números da string (ex: "ALMOX.01 - Saldo: 20" -> "01")
+            const numMatch = armazemStr.match(/\d+/);
+            if (!numMatch) return "DESCONHECIDO";
+            
+            const num = parseInt(numMatch[0], 10);
+            
+            const icarai = [1, 6, 7, 11, 14, 18];
+            const itaipu = [2, 12];
+            const barreto = [3, 13];
+
+            if (icarai.includes(num)) return "ICARAÍ";
+            if (itaipu.includes(num)) return "ITAIPU";
+            if (barreto.includes(num)) return "BARRETO";
+
+            return "ÁGUAS DE NITERÓI"; // Fallback caso seja um armazém novo não mapeado
+        }
+
+        function finalizarPDF() {
+            const nomeSolicitante = document.getElementById('nome-solicitante').value.trim();
+            
+            if (!nomeSolicitante) {
+                alert("Por favor, preencha o Nome do Solicitante na área de Finalização antes de gerar o PDF.");
+                document.getElementById('nome-solicitante').focus();
+                return;
+            }
+
+            if (listaTransferencia.length === 0) {
+                alert("A lista de transferência está vazia.");
+                return;
+            }
+
+            for (let i = 0; i < listaTransferencia.length; i++) {
+                let item = listaTransferencia[i];
+                const erroItem = validarItemTransferencia(item);
+                if (erroItem) {
+                    alert(`Item ${item.codigo}: ${erroItem}`);
+                    return;
+                }
+            }
+
+            const rotas = new Set(listaTransferencia.map(item => {
+                return `${obterRegiaoArmazem(item.origem)} x ${obterRegiaoArmazem(item.destino)}`;
+            }));
+            if (rotas.size > 1) {
+                alert('Esta solicitação contém mais de uma rota. Gere um comprovante separado para cada rota.');
+                return;
+            }
+
+            try {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('p', 'pt', 'a4'); // Retrato, pontos, A4
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
+                
+                const margin = 42;
+                let currentY = 145;
+                
+                const brandDarkBlue = '#4c5c77';
+                const brandLightBlue = '#e5ebf2';
+
+                // Passa o elemento de imagem diretamente para o jsPDF
+                // Isso evita o erro de CORS (Tainted Canvas) ao abrir o HTML direto do computador
+                const templateImg = document.getElementById('template-bg');
+                const hasTemplate = templateImg && templateImg.complete && templateImg.naturalWidth > 0;
+
+                // Usa somente o símbolo da imagem institucional. Aplicar a folha inteira como
+                // fundo criava elementos visuais concorrendo com as informações do documento.
+                let logoInstitucional = null;
+                if (hasTemplate) {
+                    const logoCanvas = document.createElement('canvas');
+                    logoCanvas.width = 180;
+                    logoCanvas.height = 180;
+                    const logoContext = logoCanvas.getContext('2d');
+                    logoContext.drawImage(templateImg, 20, 25, 180, 180, 0, 0, 180, 180);
+                    logoInstitucional = logoCanvas.toDataURL('image/png');
+                }
+
+                function desenharCabecalho(numeroPagina) {
+                    if (logoInstitucional) {
+                        doc.addImage(logoInstitucional, 'PNG', margin, 31, 62, 62);
+                    }
+
+                    doc.setDrawColor(brandDarkBlue);
+                    doc.setLineWidth(0.8);
+                    doc.line(margin, 112, pageWidth - margin, 112);
+
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(15);
+                    doc.setTextColor(brandDarkBlue);
+                    doc.text('TRANSFERÊNCIA ENTRE ARMAZÉNS', pageWidth / 2, 69, { align: 'center' });
+
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(90);
+                    doc.text('Página ' + numeroPagina, pageWidth - margin, pageHeight - 28, { align: 'right' });
+                }
+
+                desenharCabecalho(1);
+
+                // --- 3. DADOS DA REQUISIÇÃO ---
+                const todayStr = new Date().toLocaleString('pt-BR');
+                
+                // Mapeia a rota baseada no primeiro item da lista de transferência
+                const regiaoOrigem = obterRegiaoArmazem(listaTransferencia[0].origem);
+                const regiaoDestino = obterRegiaoArmazem(listaTransferencia[0].destino);
+                const textoRota = `${regiaoOrigem} x ${regiaoDestino}`;
+                
+                doc.autoTable({
+                    startY: currentY,
+                    theme: 'plain',
+                    styles: { lineColor: [185, 197, 211], lineWidth: 0.45, cellPadding: 9 },
+                    headStyles: { fillColor: brandDarkBlue, textColor: 255, halign: 'left', fontSize: 9, fontStyle: 'bold', cellPadding: 7 },
+                    bodyStyles: { textColor: 50, fontSize: 9, fillColor: [250, 252, 254] },
+                    columnStyles: { 0: { cellWidth: 170 }, 1: { cellWidth: 170 }, 2: { cellWidth: 'auto' } },
+                    head: [[{ content: 'DADOS DA SOLICITAÇÃO', colSpan: 3 }]],
+                    body: [
+                        [
+                            { content: 'Rota:\n' + textoRota, styles: { fontStyle: 'bold' } },
+                            { content: 'Data da Solicitação:\n' + todayStr, styles: { fontStyle: 'bold' } },
+                            { content: 'Solicitante:\n' + nomeSolicitante.toUpperCase(), styles: { fontStyle: 'bold' } }
+                        ]
+                    ],
+                    margin: { top: 120, bottom: 55, left: margin, right: margin }
+                });
+
+                currentY = doc.lastAutoTable.finalY + 25;
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(9);
+                doc.setTextColor(brandDarkBlue);
+                doc.text('ITENS DA TRANSFERÊNCIA', margin, currentY - 8);
+
+                // --- 4. RELAÇÃO DE PRODUTOS ---
+                const tableData = listaTransferencia.map(item => {
+                    let origemLimpa = item.origem.split(' - ')[0]; 
+                    let destinoLimpo = item.destino.split(' - ')[0];
+                    return [
+                        item.codigo,
+                        item.descricao,
+                        item.um,
+                        origemLimpa,
+                        destinoLimpo,
+                        item.quantidade
+                    ];
+                });
+
+                doc.autoTable({
+                    startY: currentY,
+                    theme: 'grid',
+                    styles: { lineColor: [185, 197, 211], lineWidth: 0.4, cellPadding: 6 },
+                    headStyles: { fillColor: brandDarkBlue, textColor: 255, halign: 'center', fontSize: 8, fontStyle: 'bold' },
+                    bodyStyles: { textColor: 50, fontSize: 8, halign: 'center', valign: 'middle' },
+                    alternateRowStyles: { fillColor: brandLightBlue },
+                    columnStyles: { 
+                        0: { cellWidth: 60, fontStyle: 'bold' }, 
+                        1: { cellWidth: 'auto', halign: 'left' },
+                        2: { cellWidth: 30 }, 
+                        3: { cellWidth: 70 }, 
+                        4: { cellWidth: 70 },
+                        5: { cellWidth: 60, fontStyle: 'bold' } 
+                    },
+                    head: [['Código', 'Produto', 'U.M.', 'Armazém Origem', 'Armazém Destino', 'Qtd. Solicitada']],
+                    body: tableData,
+                    margin: { top: 120, bottom: 55, left: margin, right: margin },
+                    willDrawPage: function (data) {
+                        if (data.pageNumber > 1) desenharCabecalho(data.pageNumber);
+                    },
+                    didDrawPage: function () {}
+                });
+
+                // --- 5. SALVAR ARQUIVO ---
+                const dateStrFile = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+                doc.save(`Comprovante_Transferencia_${dateStrFile}.pdf`);
+            } catch (error) {
+                console.error("Erro na geração do PDF: ", error);
+                alert("Ocorreu um erro ao gerar o PDF. Verifique se as informações estão preenchidas corretamente.");
+            }
+        }
+    </script>
+</body>
+</html>
