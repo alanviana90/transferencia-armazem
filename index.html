@@ -133,7 +133,16 @@
             </span>
         </div>
 
-        <div class="p-4">
+        <nav class="px-4 pt-3 border-b border-gray-200 bg-white flex gap-2" aria-label="Áreas do sistema">
+            <button id="aba-transferencia" onclick="alternarTela('transferencia')" class="px-4 py-2 text-sm font-bold text-white bg-[#2e6da4] rounded-t-sm">
+                <i class="fa-solid fa-right-left mr-2"></i>Solicitação de Transferência
+            </button>
+            <button id="aba-estoque" onclick="alternarTela('estoque')" class="px-4 py-2 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-t-sm">
+                <i class="fa-solid fa-boxes-stacked mr-2"></i>Posição de Estoque
+            </button>
+        </nav>
+
+        <div id="view-transferencia" class="p-4">
             <!-- Barra de Pesquisa -->
             <div class="flex items-center gap-2 mb-2 p-3 border border-gray-200 rounded-sm">
                 <select id="tipo-busca" class="erp-input w-32 bg-white">
@@ -232,6 +241,47 @@
                 </div>
             </div>
         </div>
+
+        <div id="view-estoque" class="hidden p-4">
+            <div class="border-t-[3px] border-[#2e6da4] pt-4">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-[#1f497d]">Posição de Estoque</h2>
+                    <p class="text-sm text-gray-600 mt-1">Consulte a posição de estoque por produto ou armazém.</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 p-4 bg-gray-50 border border-gray-200 rounded-sm">
+                    <div>
+                        <label for="filtro-estoque-texto" class="block text-xs font-bold text-gray-700 mb-1">Produto ou código</label>
+                        <input id="filtro-estoque-texto" type="search" class="erp-input bg-white" placeholder="Ex.: cimento ou 045050..." oninput="filtrarPosicaoEstoque()">
+                    </div>
+                    <div>
+                        <label for="filtro-estoque-armazem" class="block text-xs font-bold text-gray-700 mb-1">Armazém</label>
+                        <select id="filtro-estoque-armazem" class="erp-input bg-white" onchange="filtrarPosicaoEstoque()">
+                            <option value="">Todos os armazéns</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
+                    <div class="border border-blue-200 bg-blue-50 p-3 rounded-sm"><span class="block text-xs text-gray-600">Itens encontrados</span><strong id="estoque-total-linhas" class="text-xl text-[#1f497d]">0</strong></div>
+                    <div class="border border-blue-200 bg-blue-50 p-3 rounded-sm"><span class="block text-xs text-gray-600">Produtos distintos</span><strong id="estoque-total-produtos" class="text-xl text-[#1f497d]">0</strong></div>
+                    <div class="border border-blue-200 bg-blue-50 p-3 rounded-sm"><span class="block text-xs text-gray-600">Saldo somado</span><strong id="estoque-total-saldo" class="text-xl text-[#1f497d]">0</strong></div>
+                </div>
+
+                <div class="overflow-x-auto border border-gray-200 rounded-sm">
+                    <table class="w-full erp-table bg-white text-sm">
+                        <thead><tr><th class="w-36">Código</th><th>Produto</th><th class="w-16 text-center">U.M.</th><th class="w-32">Armazém</th><th class="w-32 text-right">Saldo atual</th></tr></thead>
+                        <tbody id="tabela-posicao-estoque"><tr><td colspan="5" class="text-center py-8 text-gray-500">Carregando posição de estoque...</td></tr></tbody>
+                    </table>
+                </div>
+                <div id="paginacao-estoque" class="hidden items-center justify-between gap-3 mt-3 text-sm text-gray-600">
+                    <button id="pagina-estoque-anterior" type="button" onclick="mudarPaginaEstoque(-1)" class="px-3 py-1.5 text-xs font-bold text-[#1f497d] border border-[#8db4e3] bg-white rounded-sm hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
+                    <span id="pagina-estoque-info" class="text-center"></span>
+                    <button id="pagina-estoque-proxima" type="button" onclick="mudarPaginaEstoque(1)" class="px-3 py-1.5 text-xs font-bold text-[#1f497d] border border-[#8db4e3] bg-white rounded-sm hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed">Próxima</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -244,6 +294,8 @@
         let listaTransferencia = [];
         let idCounter = 0;
         let urlPreviaPdf = null;
+        let paginaEstoqueAtual = 1;
+        const itensPorPaginaEstoque = 50;
 
         function escaparHtml(valor) {
             return String(valor ?? '').replace(/[&<>'"]/g, caractere => ({
@@ -398,6 +450,108 @@
 
             dbProdutos = Array.from(produtosMap.values());
             listaArmazens = Array.from(setArmazens).sort();
+            atualizarFiltroArmazensEstoque();
+            renderizarPosicaoEstoque();
+        }
+
+        function alternarTela(tela) {
+            const exibirEstoque = tela === 'estoque';
+            document.getElementById('view-transferencia').classList.toggle('hidden', exibirEstoque);
+            document.getElementById('view-estoque').classList.toggle('hidden', !exibirEstoque);
+
+            document.getElementById('aba-transferencia').className = exibirEstoque
+                ? 'px-4 py-2 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-t-sm'
+                : 'px-4 py-2 text-sm font-bold text-white bg-[#2e6da4] rounded-t-sm';
+            document.getElementById('aba-estoque').className = exibirEstoque
+                ? 'px-4 py-2 text-sm font-bold text-white bg-[#2e6da4] rounded-t-sm'
+                : 'px-4 py-2 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-t-sm';
+
+            if (exibirEstoque) renderizarPosicaoEstoque();
+        }
+
+        function atualizarFiltroArmazensEstoque() {
+            const select = document.getElementById('filtro-estoque-armazem');
+            const valorSelecionado = select.value;
+            select.innerHTML = '<option value="">Todos os armazéns</option>' + listaArmazens
+                .map(armazem => `<option value="${escaparHtml(armazem)}">${escaparHtml(armazem)}</option>`)
+                .join('');
+            select.value = listaArmazens.includes(valorSelecionado) ? valorSelecionado : '';
+        }
+
+        function obterPosicoesEstoque() {
+            return dbProdutos.flatMap(produto => (dbSaldos[produto.codigo] || []).map(posicao => ({
+                codigo: produto.codigo,
+                descricao: produto.descricao,
+                um: produto.um,
+                armazem: posicao.armazem,
+                saldo: Math.floor(posicao.saldo)
+            })));
+        }
+
+        function filtrarPosicaoEstoque() {
+            paginaEstoqueAtual = 1;
+            renderizarPosicaoEstoque();
+        }
+
+        function mudarPaginaEstoque(variacao) {
+            paginaEstoqueAtual += variacao;
+            renderizarPosicaoEstoque();
+        }
+
+        function prioridadeArmazem(armazem) {
+            const numeroArmazem = Number(String(armazem).match(/\d+/)?.[0]);
+            return numeroArmazem >= 1 && numeroArmazem <= 3 ? numeroArmazem : 4;
+        }
+
+        function renderizarPosicaoEstoque() {
+            const tabela = document.getElementById('tabela-posicao-estoque');
+            const paginacao = document.getElementById('paginacao-estoque');
+            if (!tabela) return;
+
+            const termo = document.getElementById('filtro-estoque-texto').value.trim().toLocaleUpperCase('pt-BR');
+            const armazem = document.getElementById('filtro-estoque-armazem').value;
+            const posicoes = obterPosicoesEstoque().filter(posicao => {
+                const correspondeTermo = !termo || posicao.codigo.includes(termo) || posicao.descricao.toLocaleUpperCase('pt-BR').includes(termo);
+                return correspondeTermo && (!armazem || posicao.armazem === armazem);
+            }).sort((primeiro, segundo) => {
+                const diferencaPrioridade = prioridadeArmazem(primeiro.armazem) - prioridadeArmazem(segundo.armazem);
+                if (diferencaPrioridade !== 0) return diferencaPrioridade;
+
+                const diferencaProduto = primeiro.descricao.localeCompare(segundo.descricao, 'pt-BR', { sensitivity: 'base' });
+                if (diferencaProduto !== 0) return diferencaProduto;
+
+                return primeiro.codigo.localeCompare(segundo.codigo, 'pt-BR');
+            });
+
+            document.getElementById('estoque-total-linhas').textContent = posicoes.length.toLocaleString('pt-BR');
+            document.getElementById('estoque-total-produtos').textContent = new Set(posicoes.map(posicao => posicao.codigo)).size.toLocaleString('pt-BR');
+            document.getElementById('estoque-total-saldo').textContent = posicoes.reduce((total, posicao) => total + posicao.saldo, 0).toLocaleString('pt-BR');
+
+            if (posicoes.length === 0) {
+                tabela.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-500">Nenhuma posição encontrada para os filtros informados.</td></tr>';
+                paginacao.classList.add('hidden');
+                return;
+            }
+
+            const totalPaginas = Math.ceil(posicoes.length / itensPorPaginaEstoque);
+            paginaEstoqueAtual = Math.max(1, Math.min(paginaEstoqueAtual, totalPaginas));
+            const primeiroItem = (paginaEstoqueAtual - 1) * itensPorPaginaEstoque;
+            const ultimoItem = Math.min(primeiroItem + itensPorPaginaEstoque, posicoes.length);
+
+            tabela.innerHTML = posicoes.slice(primeiroItem, ultimoItem).map(posicao => `
+                <tr class="hover:bg-blue-50">
+                    <td class="font-mono font-bold text-xs whitespace-nowrap">${escaparHtml(posicao.codigo)}</td>
+                    <td class="text-xs">${escaparHtml(posicao.descricao)}</td>
+                    <td class="text-center">${escaparHtml(posicao.um)}</td>
+                    <td>${escaparHtml(posicao.armazem)}</td>
+                    <td class="text-right font-bold">${posicao.saldo.toLocaleString('pt-BR')}</td>
+                </tr>`).join('');
+
+            document.getElementById('pagina-estoque-info').textContent = `Exibindo ${primeiroItem + 1}–${ultimoItem} de ${posicoes.length} itens · Página ${paginaEstoqueAtual} de ${totalPaginas}`;
+            document.getElementById('pagina-estoque-anterior').disabled = paginaEstoqueAtual === 1;
+            document.getElementById('pagina-estoque-proxima').disabled = paginaEstoqueAtual === totalPaginas;
+            paginacao.classList.remove('hidden');
+            paginacao.classList.add('flex');
         }
 
         function realizarBusca() {
@@ -738,13 +892,13 @@
                     bodyStyles: { textColor: 50, fontSize: 8, halign: 'center', valign: 'middle' },
                     alternateRowStyles: { fillColor: brandLightBlue },
                     columnStyles: {
-                        0: { cellWidth: 50, fontStyle: 'bold' },
+                        0: { cellWidth: 70, fontStyle: 'bold', fontSize: 7, cellPadding: 3, overflow: 'ellipsize' },
                         1: { cellWidth: 'auto', halign: 'left' },
                         2: { cellWidth: 27 },
                         3: { cellWidth: 61 },
                         4: { cellWidth: 61 },
-                        5: { cellWidth: 77, fontStyle: 'bold' },
-                        6: { cellWidth: 78 }
+                        5: { cellWidth: 71, fontStyle: 'bold' },
+                        6: { cellWidth: 72 }
                     },
                     head: [['Código', 'Produto', 'U.M.', 'Armazém Origem', 'Armazém Destino', 'Qtd. Solicitada', 'Qtd. Atendida']],
                     body: tableData,
@@ -757,7 +911,12 @@
 
                 // --- 5. EXIBIR PRÉVIA E PREPARAR DOWNLOAD ---
                 const dateStrFile = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-                const nomeArquivo = `Comprovante_Transferencia_${dateStrFile}.pdf`;
+                const rotaArquivo = textoRota
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/[^a-zA-Z0-9]+/g, '_')
+                    .replace(/^_|_$/g, '');
+                const nomeArquivo = `Comprovante_Transferencia_${rotaArquivo}_${dateStrFile}.pdf`;
                 const blobPdf = doc.output('blob');
 
                 if (urlPreviaPdf) URL.revokeObjectURL(urlPreviaPdf);
